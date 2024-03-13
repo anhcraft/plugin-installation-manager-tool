@@ -2,6 +2,7 @@ package io.jenkins.tools.pluginmanager.config;
 
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import hudson.util.VersionNumber;
 import io.jenkins.tools.pluginmanager.impl.Plugin;
 import java.io.File;
@@ -50,6 +51,7 @@ public class Config {
     private final boolean doDownload;
     private final boolean useLatestSpecified;
     private final boolean useLatestAll;
+    private final String bomVersion;
     private final boolean skipFailedPlugins;
     @NonNull
     private final OutputFormat outputFormat;
@@ -75,6 +77,7 @@ public class Config {
             boolean doDownload,
             boolean useLatestSpecified,
             boolean useLatestAll,
+            String bomVersion,
             boolean skipFailedPlugins,
             OutputFormat outputFormat,
             HashFunction hashFunction,
@@ -98,6 +101,7 @@ public class Config {
         this.doDownload = doDownload;
         this.useLatestSpecified = useLatestSpecified;
         this.useLatestAll = useLatestAll;
+        this.bomVersion = bomVersion;
         this.skipFailedPlugins = skipFailedPlugins;
         this.outputFormat = outputFormat;
         this.credentials = credentials;
@@ -184,6 +188,10 @@ public class Config {
 
     public boolean isUseLatestAll() { return useLatestAll; }
 
+    public String getBomVersion() {
+        return bomVersion;
+    }
+
     public boolean isSkipFailedPlugins() {
         return skipFailedPlugins;
     }
@@ -232,6 +240,7 @@ public class Config {
         private boolean doDownload;
         private boolean useLatestSpecified;
         private boolean useLatestAll;
+        private String bomVersion;
         private boolean skipFailedPlugins;
         private OutputFormat outputFormat = OutputFormat.STDOUT;
         private List<Credentials> credentials = Collections.emptyList();
@@ -337,6 +346,11 @@ public class Config {
             return this;
         }
 
+        public Builder withBomVersion(String bomVersion) {
+            this.bomVersion = bomVersion;
+            return this;
+        }
+
         public Builder withSkipFailedPlugins(boolean skipFailedPlugins) {
             this.skipFailedPlugins = skipFailedPlugins;
             return this;
@@ -387,6 +401,7 @@ public class Config {
                     doDownload,
                     useLatestSpecified,
                     useLatestAll,
+                    bomVersion,
                     skipFailedPlugins,
                     outputFormat,
                     hashFunction,
@@ -395,6 +410,5 @@ public class Config {
                     hideWarnings
             );
         }
-
     }
 }

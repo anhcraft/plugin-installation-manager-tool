@@ -2,6 +2,7 @@ package io.jenkins.tools.pluginmanager.impl;
 
 import edu.umd.cs.findbugs.annotations.CheckForNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.util.VersionNumber;
 import io.jenkins.tools.pluginmanager.config.Config;
@@ -118,6 +119,8 @@ public class PluginManager implements Closeable {
     private CloseableHttpClient httpClient;
     private final CacheManager cm;
     private final LogOutput logOutput;
+    private final RepositoryManager repositoryManager;
+    private final @CheckForNull BOMVersionManager bomVersionManager;
 
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final String MIRROR_FALLBACK_BASE_URL = "https://archives.jenkins.io/";
@@ -144,6 +147,8 @@ public class PluginManager implements Closeable {
         httpClient = null;
         userAgentInformation = this.getUserAgentInformation();
         cm = new CacheManager(cfg.getCachePath(), cfg.getLogOutput());
+        repositoryManager = new RepositoryManager();
+        bomVersionManager = cfg.getBomVersion() != null ? new BOMVersionManager(cfg.getBomVersion(), repositoryManager) : null;
     }
 
     private String getUserAgentInformation() {
@@ -1117,6 +1122,18 @@ public class PluginManager implements Closeable {
                 }
                 continue;
             }
+
+            boolean bomCheckCertainty = false;
+            if (bomVersionManager != null) {
+                VersionNumber dependencyBomVersion = bomVersionManager.getPluginVersion(resolveGroupId(dependency), dependency.getName());
+                // If the dependency is unspecified in BOM, it is uncertain whether it is compatible to others
+                // If the dependency is newer than the one in BOM, it may require dependencies with newer versions
+                // than ones defined in BOM
+                if (dependencyBomVersion != null && dependencyBomVersion.isNewerThanOrEqualTo(dependency.getVersion())) {
+                    bomCheckCertainty = true;
+                }
+            }
+
             for (Plugin p : dependency.getDependencies()) {
                 String dependencyName = p.getName();
                 Plugin pinnedPlugin = topLevelDependencies != null ? topLevelDependencies.get(dependencyName) : null;
@@ -1136,19 +1153,35 @@ public class PluginManager implements Closeable {
                                         p.getName(), p.getVersion(), pinnedPlugin.getName(), pinnedPlugin.getVersion()));
                         continue;
                     }
-                } else if (useLatestSpecified && dependency.isLatest() || useLatestAll) {
-                    try {
-                        VersionNumber latestPluginVersion = getLatestPluginVersion(dependency, p.getName());
-                        p.setVersion(latestPluginVersion);
-                        p.setLatest(true);
-                    } catch (PluginNotFoundException e) {
-                        if (!p.getOptional()) {
-                            throw e;
+                } else {
+                    boolean versionOverride = false;
+                    if (bomCheckCertainty) {
+                        VersionNumber pluginBomVersion = bomVersionManager.getPluginVersion(resolveGroupId(p), p.getName());
+                        if (pluginBomVersion != null) {
+                            p.setVersion(pluginBomVersion);
+                            try {
+                                p.setLatest(getLatestPluginVersion(dependency, p.getName()).equals(pluginBomVersion));
+                                versionOverride = true;
+                            } catch (PluginNotFoundException e) {
+                                logVerbose(String.format("%s unable to determine latest status of plugin %s in update center %s. ",
+                                  e.getOriginatorPluginAndDependencyChain(), dependencyName, jenkinsUcLatest));
+                            }
                         }
-                        logVerbose(String.format(
-                                    "%s unable to find optional plugin %s in update center %s. " +
-                                    "Ignoring until it becomes required.", e.getOriginatorPluginAndDependencyChain(),
-                                    dependencyName, jenkinsUcLatest));
+                    }
+                    if (!versionOverride && (useLatestSpecified && dependency.isLatest() || useLatestAll)) {
+                        try {
+                            VersionNumber latestPluginVersion = getLatestPluginVersion(dependency, p.getName());
+                            p.setVersion(latestPluginVersion);
+                            p.setLatest(true);
+                        } catch (PluginNotFoundException e) {
+                            if (!p.getOptional()) {
+                                throw e;
+                            }
+                            logVerbose(String.format(
+                              "%s unable to find optional plugin %s in update center %s. " +
+                                "Ignoring until it becomes required.", e.getOriginatorPluginAndDependencyChain(),
+                              dependencyName, jenkinsUcLatest));
+                        }
                     }
                 }
 
@@ -1172,6 +1205,15 @@ public class PluginManager implements Closeable {
             }
         }
         return recursiveDependencies;
+    }
+
+    private String resolveGroupId(Plugin plugin) {
+        if (plugin.getGroupId() != null) return plugin.getGroupId();
+        JSONObject pluginJson = latestPlugins.getJSONObject(plugin.getName());
+        if (pluginJson == null) return plugin.getGroupId();
+        String gav = pluginJson.getString("gav");
+        if (gav == null) return plugin.getGroupId();
+        return gav.split(":")[0];
     }
 
     /**

@@ -143,6 +143,10 @@ class CliOptions {
             handler = ExplicitBooleanOptionHandler.class)
     private boolean useLatestAll = true;
 
+    @Option(name = "--bom", usage = "Set the BOM version, e.g. bom-2.414.x or 2.414.x. This downloads the BOM-compatible " +
+                "version of all qualified dependencies. Otherwise, fallback to other version strategies.")
+    private String bomVersion;
+
     @Option(name = "--help", aliases = {"-h"}, help = true)
     private boolean showHelp;
 
@@ -181,6 +185,7 @@ class CliOptions {
                 .withDoDownload(!isNoDownload())
                 .withUseLatestSpecified(isUseLatestSpecified())
                 .withUseLatestAll(isUseLatestAll())
+                .withBomVersion(getBomVersion())
                 .withSkipFailedPlugins(isSkipFailedPlugins())
                 .withCredentials(credentials)
                 .withHashFunction(getHashFunction())
@@ -540,6 +545,19 @@ class CliOptions {
             return false;
         }
         return useLatestAll;
+    }
+
+    /**
+     * Returns the preferred BOM version.<br>
+     * When such version is available, use BOM-compatible versions for all qualified dependencies.<br>
+     * If such version is not found, fallback to other version strategies.
+     * @return the BOM preferred version
+     * @link <a href="https://www.jenkins.io/doc/developer/plugin-development/dependency-management/#jenkins-plugin-bom">Learn more</a>
+     */
+    public @CheckForNull String getBomVersion() {
+        if (bomVersion != null && !bomVersion.startsWith("bom-"))
+            bomVersion = "bom-" + bomVersion;
+        return bomVersion;
     }
 
     // visible for testing
