@@ -1325,8 +1325,12 @@ public class PluginManager implements Closeable {
         }
 
         boolean success = true;
+        boolean shouldCache = true;
 
-        if(urlString.startsWith("http://") || urlString.startsWith("https://")){
+        if (getFromLocalCache(plugin, pluginFile)) {
+            logMessage("Plugin " + plugin.getName() + " was found in the local Maven cache");
+            shouldCache = false;
+        } else if(urlString.startsWith("http://") || urlString.startsWith("https://")){
             success = downloadHttpToFile(urlString, plugin, pluginFile, maxRetries);
 
             if (!success && !urlString.startsWith(MIRROR_FALLBACK_BASE_URL)) {
@@ -1344,6 +1348,8 @@ public class PluginManager implements Closeable {
             try (JarFile ignored = new JarFile(pluginFile)) {
                 verifyChecksum(plugin, pluginFile);
                 plugin.setFile(pluginFile);
+                if (shouldCache)
+                    cachePlugin(plugin, pluginFile);
             } catch (IOException e) {
                 failedPlugins.add(plugin);
                 logMessage("Downloaded file is not a valid ZIP");
@@ -1358,6 +1364,46 @@ public class PluginManager implements Closeable {
             failedPlugins.add(plugin);
         }
         return success;
+    }
+
+    private boolean getFromLocalCache(Plugin plugin, File target) {
+        String version = plugin.getVersion().toString();
+        // latest / incremental build version cannot be deterministically resolved
+        if (version.equals(Plugin.LATEST) || version.equals(Plugin.EXPERIMENTAL)) {
+            return false;
+        }
+        // group id must be provided or the plugin must be available on the Update Center
+        String groupId = resolveGroupId(plugin);
+        if (groupId == null) {
+            return false;
+        }
+        try {
+            File hpi = repositoryManager.requestArtifactFile(groupId + ":" + plugin.getName() + ":hpi:" + version, true);
+            if (hpi != null) {
+                try {
+                    Files.copy(hpi.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    return true;
+                } catch (IOException e) {
+                    logOutput.printVerboseStacktrace(e);
+                    logVerbose("Failed to copy " + plugin.getName() + " from the local cache");
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            logOutput.printVerboseStacktrace(e);
+        }
+        logVerbose("Failed to find " + plugin.getName() + " in the local cache");
+        return false;
+    }
+
+    private void cachePlugin(Plugin plugin, File pluginFile) {
+        try {
+            repositoryManager.installPlugin(pluginFile);
+            logVerbose("Installed " + plugin.getName() + " to the local cache");
+        } catch (Exception e) {
+            logOutput.printVerboseStacktrace(e);
+            logVerbose("Failed to install " + plugin.getName() + " to the local cache");
+        }
     }
 
     /**
